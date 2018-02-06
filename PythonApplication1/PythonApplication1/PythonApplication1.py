@@ -1,5 +1,8 @@
 #!/usr/bin/python3
-# https://github.com/cholin/ff-api-viewer
+# used 3.6.4
+# copy from https://github.com/freifunk/common.api.freifunk.net/blob/master/collector/collectCommunities.py
+# viewer: https://github.com/cholin/ff-api-viewer
+# error field added to ffapi
 
 import json
 import shutil
@@ -48,9 +51,9 @@ def loadDirectory(url):
 
 #create a summarized json file, works as cache
 def summarizedJson(ffDir, path):
-	time = datetime.now().isoformat(' ')
+	time = datetime.now().isoformat()	#'T' for ISO 8601
 	historyTime = datetime.now().strftime('%Y%m%d-%H.%M.%S-')
-	summary = dict() 
+	summary = dict()
 	#open summarized file first
 	try:
 		summaryFile = open(path, "r")
@@ -85,8 +88,10 @@ def summarizedJson(ffDir, path):
 				del summary[sCommunity]
 				log(0, sCommunity + " is not in our directory anymore and is now deleted from summary!")
 
+	i = 0
 	for community in ffDir:
 		log(3, "working on community: " + ffDir[community])
+		error = None
 		try:
 			request = urllib.request.Request(
 				ffDir[community],
@@ -98,18 +103,39 @@ def summarizedJson(ffDir, path):
 			ffApi = json.loads(urlopen(request, None, 10).read().decode('utf-8'))
 		except UnicodeError as e:
 			try:
+				log(0, "Unicode Error: " + ffDir[community] + ": " + str(e) + ", try iso8859_2 instead")    #@OLr das try sollte vor dem Versuch stehen
 				ffApi = json.loads(urlopen(ffDir[community]).readall().decode('iso8859_2'))
-				log(0, "Unicode Error: " + ffDir[community] + ": " + str(e) + ", try iso8859_2 instead")
-				pass
+				#pass
 			except BaseException as e:
+				error = e
 				log(0, "Error reading community api file " + ffDir[community] + ": " + str(e))
-				continue
+				#continue
 		except BaseException as e:
+			error = e
 			log(0, "Error reading community api file " + ffDir[community] + ": " + str(e))
-			break
+			#break
 
-		ffApi['mtime'] = time
+		if (error is None):
+			ffApi['mtime'] = time
+		else:
+			try:	#kein has_key verfügbar
+				ffApi = summary[community]
+			except:
+				ffApi = dict()	#init new instance
+				ffApi['mtime'] = time
+				#nachfolgende Felder werden für tableHtml benötigt
+				ffApi['location'] = dict()
+				ffApi['location']['city'] = community
+				ffApi['name'] = community
+				ffApi['state'] = dict()
+			ffApi['error'] = str(type(error)) + " " + str(error)	#OLr exception type ergänzen?!
+			ffApi['etime'] = time
+
 		summary[community] = ffApi
+		if (not error is None):
+			i += 1
+			if (i > 10):
+				break
 	log(4, "our summary: " + str(summary))
 	summaryResult = json.dumps(summary, indent=4)
 
@@ -273,9 +299,9 @@ def tableHtml(summary, HtmlTablePath):
 
 #read some command line arguments
 parser = OptionParser()
-parser.add_option("-l", "--loglevel", dest="logLevel", default=5, type=int, help="define loglevel")
+parser.add_option("-l", "--loglevel", dest="logLevel", default=1, type=int, help="define loglevel")
 parser.add_option("-g", "--geojson", dest="geoJSON", default=False, action="store_true", help="Output format: geoJSON")
-parser.add_option("-t", "--tableHtml", dest="tableHtml", default=True, action="store_true", help="Output format: HTML table")
+parser.add_option("-t", "--tableHtml", dest="tableHtml", default=False, action="store_true", help="Output format: HTML table")
 (options, args) = parser.parse_args()
 
 
